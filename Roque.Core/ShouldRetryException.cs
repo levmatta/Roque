@@ -1,15 +1,7 @@
-﻿// -----------------------------------------------------------------------
-// <copyright file="ShouldRetryException.cs" company="">
-// TODO: Update copyright text.
-// </copyright>
-// -----------------------------------------------------------------------
-
-namespace Cinchcast.Roque.Core
+﻿namespace Cinchcast.Roque.Core
 {
     using System;
-    using System.Collections.Generic;
     using System.Linq;
-    using System.Text;
 
     /// <summary>
     /// If a job throws this exception the Worker will retry.

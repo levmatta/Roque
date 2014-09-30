@@ -1,17 +1,9 @@
-﻿// -----------------------------------------------------------------------
-// <copyright file="MyEventLogger.cs" company="">
-// TODO: Update copyright text.
-// </copyright>
-// -----------------------------------------------------------------------
-
-using System.ComponentModel;
+﻿using System.ComponentModel;
 
 namespace Cinchcast.Roque.Common
 {
     using System;
-    using System.Collections.Generic;
     using System.Linq;
-    using System.Text;
 
     /// <summary>
     /// Subscriber class example. All methods starting with "Subscribe" will be called on initialization.
@@ -21,10 +13,10 @@ namespace Cinchcast.Roque.Common
     {
         public void SubscribeToPropertyChanges(INotifyPropertyChanged source)
         {
-            source.PropertyChanged += new PropertyChangedEventHandler(source_PropertyChanged);
+            source.PropertyChanged += new PropertyChangedEventHandler(SourcePropertyChanged);
         }
 
-        void source_PropertyChanged(object sender, PropertyChangedEventArgs e)
+        void SourcePropertyChanged(object sender, PropertyChangedEventArgs e)
         {
             System.Diagnostics.Trace.TraceInformation(string.Format("Property '{0}' changed", e.PropertyName));
         }

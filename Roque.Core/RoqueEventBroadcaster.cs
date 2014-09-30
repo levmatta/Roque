@@ -1,19 +1,11 @@
-﻿// -----------------------------------------------------------------------
-// <copyright file="RoqueEventBroadcaster.cs" company="">
-// TODO: Update copyright text.
-// </copyright>
-// -----------------------------------------------------------------------
-
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Reflection;
-using Newtonsoft.Json;
 
 namespace Cinchcast.Roque.Core
 {
     using System;
     using System.Collections.Generic;
     using System.Linq;
-    using System.Text;
 
     /// <summary>
     /// Subscribes to event and broadcasts them into multiple <see cref="Queue"/>

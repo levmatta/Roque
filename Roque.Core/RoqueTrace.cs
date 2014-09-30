@@ -1,17 +1,8 @@
-﻿// -----------------------------------------------------------------------
-// <copyright file="Trace.cs" company="">
-// TODO: Update copyright text.
-// </copyright>
-// -----------------------------------------------------------------------
+﻿using System.Diagnostics;
 
-using System.Diagnostics;
-
-namespace Cinchcast.Roque
+namespace Cinchcast.Roque.Core
 {
     using System;
-    using System.Collections.Generic;
-    using System.Linq;
-    using System.Text;
 
     /// <summary>
     /// Roque Trace Switch, configure using:

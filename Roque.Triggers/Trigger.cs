@@ -5,11 +5,10 @@ using System.Globalization;
 using System.Linq;
 using System.Text;
 using System.Threading;
-using System.Threading.Tasks;
-using BookSleeve;
 using Cinchcast.Roque.Core;
 using Cinchcast.Roque.Core.Configuration;
 using Cinchcast.Roque.Redis;
+using StackExchange.Redis;
 
 namespace Cinchcast.Roque.Triggers
 {
@@ -18,13 +17,30 @@ namespace Cinchcast.Roque.Triggers
     /// </summary>
     public class Trigger
     {
-        private static TriggerWatcher _All;
+        public Trigger()
+        {
+            Settings = new Dictionary<string, string>();
+        }
+
+        public virtual string Name { get; set; }
+
+        public virtual bool Active { get; private set; }
+
+        public virtual IDictionary<string, string> Settings { get; protected set; }
+
+        public virtual RedisQueue Queue { get; protected set; }
+
+        public virtual Func<Job> JobCreator { get; protected set; }
+
+        protected RedisLiveConnection connection;
+
+        private static TriggerWatcher all;
 
         public static TriggerWatcher All
         {
             get
             {
-                if (_All == null)
+                if (all == null)
                 {
                     var triggerConfigs = Cinchcast.Roque.Core.Configuration.Roque.Settings.Triggers.OfType<TriggerElement>();
                     var triggers = new List<Trigger>();
@@ -40,46 +56,29 @@ namespace Cinchcast.Roque.Triggers
                             triggerConfig.Settings.ToDictionary());
                         triggers.Add(trigger);
                     }
-                    _All = new TriggerWatcher(triggers.ToArray());
+                    all = new TriggerWatcher(triggers.ToArray());
                 }
-                return _All;
+                return all;
             }
         }
 
-        public string Name { get; set; }
-
-        public bool Active { get; private set; }
-
-        public IDictionary<string, string> Settings { get; private set; }
-
-        public RedisQueue Queue { get; private set; }
-
-        public Func<Job> JobCreator { get; private set; }
-
-        private RedisLiveConnection _Connection;
-
-        public RedisLiveConnection Connection
+        public virtual RedisLiveConnection Connection
         {
             get
             {
-                if (_Connection == null)
+                if (connection == null)
                 {
-                    _Connection = Queue.Connection;
+                    connection = Queue.Connection;
                 }
-                return _Connection;
+                return connection;
             }
         }
 
-        public Trigger()
-        {
-            Settings = new Dictionary<string, string>();
-        }
-
-        public void Configure(string queue, string targetTypeFullName, string targetMethodName, string targetArgument, IDictionary<string, string> settings)
+        public async void Configure(string queue, string targetTypeFullName, string targetMethodName, string targetArgument, IDictionary<string, string> settings)
         {
             Settings = settings;
             Queue = (RedisQueue)Roque.Core.Queue.Get(queue);
-            _Connection = Queue.Connection;
+            connection = Queue.Connection;
             JobCreator = () =>
                 {
                     Job job = Job.Create(targetTypeFullName, targetMethodName);
@@ -91,30 +90,29 @@ namespace Cinchcast.Roque.Triggers
                 };
 
             // update trigger info on redis
-            var connection = _Connection.GetOpen();
-            connection.Hashes.Set(0, GetRedisKey("info"), "type", this.GetType().FullName).Wait();
-            connection.Hashes.Set(0, GetRedisKey("info"), "queue", queue).Wait();
-            connection.Hashes.Set(0, GetRedisKey("info"), "targetTypeFullName", targetTypeFullName).Wait();
-            connection.Hashes.Set(0, GetRedisKey("info"), "targetMethodName", targetMethodName).Wait();
-            connection.Hashes.Set(0, GetRedisKey("info"), "targetArgument", targetArgument).Wait();
-            connection.Hashes.Set(0, GetRedisKey("info"), "lastupdate", DateTime.UtcNow.ToString("s", CultureInfo.InvariantCulture)).Wait();
-            connection.Keys.Remove(0, GetRedisKey("settings")).Wait();
+            var db = connection.GetOpen().GetDatabase();
+            await db.HashSetAsync(GetRedisKey("info"), "type", this.GetType().FullName);
+            await db.HashSetAsync(GetRedisKey("info"), "queue", queue);
+            await db.HashSetAsync(GetRedisKey("info"), "targetTypeFullName", targetTypeFullName);
+            await db.HashSetAsync(GetRedisKey("info"), "targetMethodName", targetMethodName);
+            await db.HashSetAsync(GetRedisKey("info"), "targetArgument", targetArgument);
+            await db.HashSetAsync(GetRedisKey("info"), "lastupdate", DateTime.UtcNow.ToString("s", CultureInfo.InvariantCulture));
+            await db.KeyDeleteAsync(GetRedisKey("settings"));
             foreach (var setting in settings)
             {
-                connection.Hashes.Set(0, GetRedisKey("settings"), setting.Key, setting.Value).Wait();
+                await db.HashSetAsync(GetRedisKey("settings"), setting.Key, setting.Value);
             }
         }
 
-        public DateTime? GetLastExecution()
+        public virtual DateTime? GetLastExecution()
         {
             try
             {
-                string lastExecutionString = Connection.GetOpen().Hashes.GetString(0, GetRedisKey(), "lastexecution").Result;
-                if (string.IsNullOrEmpty(lastExecutionString))
-                {
-                    return null;
-                }
-                return DateTime.Parse(lastExecutionString, CultureInfo.InvariantCulture);
+                var db = Connection.GetOpen().GetDatabase();
+                string lastExecutionString = db.HashGet(GetRedisKey(), "lastexecution");
+
+                return String.IsNullOrEmpty(lastExecutionString) ? null : 
+                    (DateTime?) DateTime.Parse(lastExecutionString, CultureInfo.InvariantCulture);
             }
             catch (Exception ex)
             {
@@ -123,34 +121,29 @@ namespace Cinchcast.Roque.Triggers
             }
         }
 
-        public void Activate()
+        public virtual void Activate()
         {
-            if (Active)
-            {
-                return;
-            }
+            if (Active) return;
 
             OnActivate();
 
             RoqueTrace.Source.TraceEvent(TraceEventType.Information, -1, "Trigger activated. Type: {0}, Name: {1}", GetType().Name, Name);
         }
 
-        public void Deactivate()
+        public virtual void Deactivate()
         {
-            if (!Active)
-            {
-                return;
-            }
+            if (!Active) return;
+
             OnDeactivate();
             Active = false;
         }
 
-        protected string GetRedisKey(string suffixFormat = null, params object[] parameters)
+        protected virtual string GetRedisKey(string suffixFormat = null, params object[] parameters)
         {
             return GetRedisKeyForTrigger(Name, suffixFormat, parameters);
         }
 
-        protected string GetRedisKeyForTrigger(string triggerName, string suffixFormat = null, params object[] parameters)
+        protected virtual string GetRedisKeyForTrigger(string triggerName, string suffixFormat = null, params object[] parameters)
         {
             var key = new StringBuilder(RedisQueue.RedisNamespace);
             key.Append("t:");
@@ -171,7 +164,7 @@ namespace Cinchcast.Roque.Triggers
         {
         }
 
-        public DateTime? GetNextExecution()
+        public virtual DateTime? GetNextExecution()
         {
             return GetNextExecution(GetLastExecution());
         }
@@ -182,7 +175,7 @@ namespace Cinchcast.Roque.Triggers
             return null;
         }
 
-        public void Execute(bool force = false)
+        public virtual async void Execute(bool force = false)
         {
             DateTime? lastExecution = null;
             DateTime? nextExecution = null;
@@ -190,8 +183,10 @@ namespace Cinchcast.Roque.Triggers
             {
                 lastExecution = GetLastExecution();
                 nextExecution = GetNextExecution(lastExecution);
-                Connection.GetOpen().Hashes.Set(0, GetRedisKey(), "nextexecution", nextExecution == null ? null :
-                    nextExecution.Value.ToString("s", CultureInfo.InvariantCulture)).Wait();
+                var db = Connection.GetOpen().GetDatabase();
+                await db.HashSetAsync(GetRedisKey(), "nextexecution", 
+                    nextExecution == null ? null : nextExecution.Value.ToString("s", CultureInfo.InvariantCulture)
+                    );
             }
             catch (Exception ex)
             {
@@ -214,15 +209,15 @@ namespace Cinchcast.Roque.Triggers
             }
         }
 
-        protected void ExecuteNow(DateTime? lastExecution, bool force = false)
+        protected virtual void ExecuteNow(DateTime? lastExecution, bool force = false)
         {
             bool lockObtained = false;
-            RedisConnection connection = null;
+            IDatabase db = null;
             try
             {
-                connection = Connection.GetOpen();
+                db = Connection.GetOpen().GetDatabase();
                 // semaphore, prevent multiple executions
-                lockObtained = connection.Strings.TakeLock(0, GetRedisKey("executing"), "1", 5).Result;
+                lockObtained = db.LockTake(GetRedisKey("executing"), "1", TimeSpan.FromSeconds(5));
                 if (!lockObtained)
                 {
                     // trigger already executing, abort this execution
@@ -239,9 +234,9 @@ namespace Cinchcast.Roque.Triggers
                     RoqueTrace.Source.TraceEvent(TraceEventType.Information, -1, "Trigger executed. Type: {0}, Name: {1}", GetType().Name, Name);
                     var recentExecution = DateTime.UtcNow;
                     var nextExecution = GetNextExecution(recentExecution);
-                    connection.Hashes.Set(0, GetRedisKey(), "lastexecution", recentExecution.ToString("s", CultureInfo.InvariantCulture)).Wait();
-                    connection.Hashes.Set(0, GetRedisKey(), "nextexecution", nextExecution == null ? null :
-                        nextExecution.Value.ToString("s", CultureInfo.InvariantCulture)).Wait();
+                    db.HashSet(GetRedisKey(), "lastexecution", recentExecution.ToString("s", CultureInfo.InvariantCulture));
+                    db.HashSet(GetRedisKey(), "nextexecution", nextExecution == null ? null :
+                        nextExecution.Value.ToString("s", CultureInfo.InvariantCulture));
                     RoqueTrace.Source.TraceEvent(TraceEventType.Information, -1, "Trigger next execution: {2} GMT. Type: {0}, Name: {1}", GetType().Name, Name, nextExecution);
                 }
             }
@@ -255,7 +250,7 @@ namespace Cinchcast.Roque.Triggers
                 {
                     try
                     {
-                        connection.Strings.ReleaseLock(0, GetRedisKey("executing")).Wait();
+                        db.LockRelease(GetRedisKey("executing"),"0");
                     }
                     catch (Exception ex)
                     {
@@ -265,7 +260,7 @@ namespace Cinchcast.Roque.Triggers
             }
         }
 
-        protected bool EnqueueJob()
+        protected virtual bool EnqueueJob()
         {
             try
             {

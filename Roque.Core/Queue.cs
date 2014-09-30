@@ -1,20 +1,12 @@
-﻿// -----------------------------------------------------------------------
-// <copyright file="Queue.cs" company="">
-// TODO: Update copyright text.
-// </copyright>
-// -----------------------------------------------------------------------
-
-using System.Diagnostics;
-using System.Threading;
+﻿using System.Diagnostics;
 using System.Threading.Tasks;
 
 namespace Cinchcast.Roque.Core
 {
+    using Newtonsoft.Json;
     using System;
     using System.Collections.Generic;
     using System.Linq;
-    using System.Text;
-    using Newtonsoft.Json;
 
     /// <summary>
     /// Represents a queue of pending jobs
@@ -23,7 +15,7 @@ namespace Cinchcast.Roque.Core
     {
         public const string DefaultEventQueueName = "_events";
 
-        private static IDictionary<string, Queue> _Instances = new Dictionary<string, Queue>();
+        private static readonly IDictionary<string, Queue> instances = new Dictionary<string, Queue>();
 
         /// <summary>
         /// Get a queue by name
@@ -37,7 +29,7 @@ namespace Cinchcast.Roque.Core
             {
                 name = string.Empty;
             }
-            if (!_Instances.TryGetValue(name, out queue))
+            if (!instances.TryGetValue(name, out queue))
             {
                 try
                 {
@@ -62,8 +54,8 @@ namespace Cinchcast.Roque.Core
                         throw new Exception("Queue type not found: " + queueConfig.QueueType);
                     }
 
-                    queue = (Queue)Activator.CreateInstance(queueType, queueConfig.Name, queueConfig.Settings.ToDictionary());
-                    _Instances[queue.Name] = queue;
+                    queue = (Queue) Activator.CreateInstance(queueType, queueConfig.Name, queueConfig.Settings.ToDictionary());
+                    instances[queue.Name] = queue;
                 }
                 catch (Exception ex)
                 {
@@ -74,7 +66,7 @@ namespace Cinchcast.Roque.Core
             return queue;
         }
 
-        private static QueueArray _All;
+        private static QueueArray all;
 
         /// <summary>
         /// Returns all queues declared in configuration
@@ -83,12 +75,12 @@ namespace Cinchcast.Roque.Core
         {
             get
             {
-                if (_All == null)
+                if (all == null)
                 {
-                    _All = new QueueArray(Configuration.Roque.Settings.Queues.OfType<Configuration.QueueElement>()
+                    all = new QueueArray(Configuration.Roque.Settings.Queues.OfType<Configuration.QueueElement>()
                         .Select(queueConfig => Queue.Get(queueConfig.Name)).ToArray());
                 }
-                return _All;
+                return all;
             }
         }
 

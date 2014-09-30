@@ -1,15 +1,8 @@
-﻿// -----------------------------------------------------------------------
-// <copyright file="RedisQueue.cs" company="">
-// TODO: Update copyright text.
-// </copyright>
-// -----------------------------------------------------------------------
-
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Globalization;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using BookSleeve;
 using Cinchcast.Roque.Core;
 
 namespace Cinchcast.Roque.Redis
@@ -18,6 +11,7 @@ namespace Cinchcast.Roque.Redis
     using System.Collections.Generic;
     using System.Linq;
     using System.Text;
+    using StackExchange.Redis;
 
     /// <summary>
     /// Redis-based implementation of a <see cref="Queue"/>
@@ -29,27 +23,27 @@ namespace Cinchcast.Roque.Redis
         /// </summary>
         public static string RedisNamespace = "roque:";
 
-        private RedisLiveConnection _Connection;
+        private RedisLiveConnection connection;
 
         public RedisLiveConnection Connection
         {
             get
             {
-                if (_Connection == null)
+                if (connection == null)
                 {
-                    _Connection = new RedisLiveConnection(Settings);
+                    connection = new RedisLiveConnection(Settings);
                 }
-                return _Connection;
+                return connection;
             }
         }
 
-        private object syncConnection = new object();
+        protected readonly object syncConnection = new object();
 
-        protected IDictionary<string, string[]> _SubscribersCache = new Dictionary<string, string[]>();
+        protected IDictionary<string, string[]> subscribersCache = new Dictionary<string, string[]>();
 
-        protected RedisSubscriberConnection _SubscribedToSubscribersChangesChannel;
+        protected ISubscriber subscribedToSubscribersChangesChannel;
 
-        protected DateTime _SubscribersCacheLastClear = DateTime.Now;
+        protected DateTime subscribersCacheLastClear = DateTime.Now;
 
         public static TimeSpan DefaultSubscribersCacheExpiration = TimeSpan.FromMinutes(60);
 
@@ -83,23 +77,23 @@ namespace Cinchcast.Roque.Redis
             return string.Format("w_{0}_{1}", worker.Name, worker.ID);
         }
 
-        protected override void EnqueueJson(string data)
+        protected override async void EnqueueJson(string data)
         {
-            Connection.GetOpen().Lists.AddFirst(0, GetRedisKey(), data).Wait();
+            Connection.GetOpen().GetDatabase().ListInsertBeforeAsync(GetRedisKey(), 0, data);
         }
 
         protected override string DequeueJson(Worker worker, int timeoutSeconds)
         {
-            var connection = Connection.GetOpen();
+            var db = Connection.GetOpen().GetDatabase();
 
             // move job from queue to worker in progress
-            string data = connection.Lists.BlockingRemoveLastAndAddFirstString(0, GetRedisKey(), GetRedisKey("worker:{0}:inprogress", GetWorkerKey(worker)), timeoutSeconds).Result;
+            string data = db.ListRightPopLeftPush(GetRedisKey(), GetRedisKey("worker:{0}:inprogress", GetWorkerKey(worker)));
 
             if (!string.IsNullOrEmpty(data))
             {
                 try
                 {
-                    connection.Hashes.Set(0, GetRedisKey("worker:{0}:state", GetWorkerKey(worker)), "currentstart", DateTime.UtcNow.ToString("s", CultureInfo.InvariantCulture));
+                    db.HashSet(GetRedisKey("worker:{0}:state", GetWorkerKey(worker)), "currentstart", DateTime.UtcNow.ToString("s", CultureInfo.InvariantCulture));
                 }
                 catch (Exception ex)
                 {
@@ -111,25 +105,25 @@ namespace Cinchcast.Roque.Redis
 
         protected override string PeekJson(out long length)
         {
-            var connection = Connection.GetOpen();
+            var db = Connection.GetOpen().GetDatabase();
 
-            string data = connection.Lists.GetString(0, GetRedisKey(), -1).Result;
+            string data = db.ListGetByIndex(GetRedisKey(), -1);
             if (data == null)
             {
                 length = 0;
             }
             else
             {
-                length = connection.Lists.GetLength(0, GetRedisKey()).Result;
+                length = db.ListLength(GetRedisKey());
             }
             return data;
         }
 
         protected override DateTime? DoGetTimeOfLastJobCompleted()
         {
-            var connection = Connection.GetOpen();
+            var db = Connection.GetOpen().GetDatabase();
 
-            string data = connection.Hashes.GetString(0, GetRedisKey("state"), "lastcomplete").Result;
+            string data = db.HashGet(GetRedisKey("state"), "lastcomplete");
             if (string.IsNullOrEmpty(data))
             {
                 return null;
@@ -142,13 +136,13 @@ namespace Cinchcast.Roque.Redis
 
         public string GetInProgressJson(Worker worker)
         {
-            var connection = Connection.GetOpen();
-            string data = connection.Lists.GetString(0, GetRedisKey("worker:{0}:inprogress", GetWorkerKey(worker)), 0).Result;
+            var db = Connection.GetOpen().GetDatabase();
+            string data = db.ListGetByIndex(GetRedisKey("worker:{0}:inprogress", GetWorkerKey(worker)), 0);
             if (data != null)
             {
                 try
                 {
-                    connection.Hashes.Set(0, GetRedisKey("worker:{0}:state", GetWorkerKey(worker)), "currentstart", DateTime.UtcNow.ToString("s", CultureInfo.InvariantCulture));
+                    db.HashSet(GetRedisKey("worker:{0}:state", GetWorkerKey(worker)), "currentstart", DateTime.UtcNow.ToString("s", CultureInfo.InvariantCulture));
                 }
                 catch (Exception ex)
                 {
@@ -158,19 +152,20 @@ namespace Cinchcast.Roque.Redis
             return data;
         }
 
-        public void JobCompleted(Worker worker, Job job, bool failed)
+        public async void JobCompleted(Worker worker, Job job, bool failed)
         {
             try
             {
-                var connection = Connection.GetOpen();
-                string json = connection.Lists.RemoveFirstString(0, GetRedisKey("worker:{0}:inprogress", GetWorkerKey(worker))).Result;
+                // LVM transaction ??
+                var db = Connection.GetOpen().GetDatabase();
+                string json = await db.ListLeftPopAsync(GetRedisKey("worker:{0}:inprogress", GetWorkerKey(worker)));
                 if (failed)
                 {
-                    connection.Lists.AddFirst(0, GetRedisKey("failed"), json).Wait();
+                    await db.ListInsertBeforeAsync(GetRedisKey("failed"), 0, json);
                 }
-                connection.Hashes.Remove(0, GetRedisKey("worker:{0}:state", GetWorkerKey(worker)), "currentstart").Wait();
-                connection.Hashes.Set(0, GetRedisKey("worker:{0}:state", GetWorkerKey(worker)), "lastcomplete", DateTime.UtcNow.ToString("s", CultureInfo.InvariantCulture)).Wait();
-                connection.Hashes.Set(0, GetRedisKey("state"), "lastcomplete", DateTime.UtcNow.ToString("s", CultureInfo.InvariantCulture)).Wait();
+                await db.HashDeleteAsync(GetRedisKey("worker:{0}:state", GetWorkerKey(worker)), "currentstart");
+                await db.HashSetAsync(GetRedisKey("worker:{0}:state", GetWorkerKey(worker)), "lastcomplete", DateTime.UtcNow.ToString("s", CultureInfo.InvariantCulture));
+                await db.HashSetAsync(GetRedisKey("state"), "lastcomplete", DateTime.UtcNow.ToString("s", CultureInfo.InvariantCulture));
             }
             catch (Exception ex)
             {
@@ -181,16 +176,16 @@ namespace Cinchcast.Roque.Redis
 
         public void ClearSubscribersCache()
         {
-            _SubscribersCache.Clear();
+            subscribersCache.Clear();
         }
 
         protected override void DoReportEventSubscription(string sourceQueue, string target, string eventName)
         {
-            var connection = Connection.GetOpen();
-            var added = connection.SortedSets.Add(0, GetRedisKeyForQueue(sourceQueue, "events:{0}:{1}:subscribers", target, eventName), Name, 0).Result;
+            var db = Connection.GetOpen().GetDatabase();
+            var added = db.SortedSetAdd(GetRedisKeyForQueue(sourceQueue, "events:{0}:{1}:subscribers", target, eventName), Name, 0);
             if (added)
             {
-                connection.Publish(GetRedisKeyForQueue(sourceQueue, "events:subscriberschanges"), "+" + target + ":" + eventName).Wait();
+                db.PublishAsync(GetRedisKeyForQueue(sourceQueue, "events:subscriberschanges"), "+" + target + ":" + eventName);
                 RoqueTrace.Source.Trace(TraceEventType.Information, "[REDIS] Queue {0} subscribed to events {1}:{2} events on queue {3}", Name, target, eventName, sourceQueue);
             }
         }
@@ -199,24 +194,18 @@ namespace Cinchcast.Roque.Redis
         {
             string[] subscribers;
             string eventKey = target + ":" + eventName;
-            RedisConnection connection = null;
 
-            if (_SubscribedToSubscribersChangesChannel != null &&
-                _SubscribedToSubscribersChangesChannel.State != RedisConnectionBase.ConnectionState.Open &&
-                _SubscribedToSubscribersChangesChannel.State != RedisConnectionBase.ConnectionState.Opening)
+            if (subscribedToSubscribersChangesChannel != null && !subscribedToSubscribersChangesChannel.IsConnected())
             {
                 // connection dropped, create a new one
-                _SubscribedToSubscribersChangesChannel = null;
+                subscribedToSubscribersChangesChannel = null;
                 ClearSubscribersCache();
             }
-            if (_SubscribedToSubscribersChangesChannel == null)
+            if (subscribedToSubscribersChangesChannel == null)
             {
-                if (connection == null)
-                {
-                    connection = Connection.GetOpen();
-                }
-                _SubscribedToSubscribersChangesChannel = connection.GetOpenSubscriberChannel();
-                _SubscribedToSubscribersChangesChannel.Subscribe(GetRedisKey("events:subscriberschanges"), (message, bytes) =>
+                var connection = Connection.GetOpen();
+                subscribedToSubscribersChangesChannel = connection.GetSubscriber();
+                subscribedToSubscribersChangesChannel.Subscribe(GetRedisKey("events:subscriberschanges"), (message, bytes) =>
                 {
                     RoqueTrace.Source.Trace(TraceEventType.Information, "[REDIS] Subscribers added to {0}, clearing subscribers cache", Name);
                     ClearSubscribersCache();
@@ -224,27 +213,24 @@ namespace Cinchcast.Roque.Redis
                 RoqueTrace.Source.Trace(TraceEventType.Verbose, "[REDIS] Listening for subscribers changes on queue {0}", Name);
             }
 
-            if (DateTime.Now.Subtract(_SubscribersCacheLastClear) > (SubscribersCacheExpiration ?? DefaultSubscribersCacheExpiration))
+            if (DateTime.Now.Subtract(subscribersCacheLastClear) > (SubscribersCacheExpiration ?? DefaultSubscribersCacheExpiration))
             {
                 ClearSubscribersCache();
             }
 
-            if (!_SubscribersCache.TryGetValue(eventKey, out subscribers))
+            if (!subscribersCache.TryGetValue(eventKey, out subscribers))
             {
-                if (connection == null)
-                {
-                    connection = Connection.GetOpen();
-                }
-                subscribers = connection.SortedSets.Range(0, GetRedisKey("events:{0}:subscribers", eventKey), 0, -1).Result
-                    .Select(set => Encoding.UTF8.GetString(set.Key)).ToArray();
-                _SubscribersCache[eventKey] = subscribers;
+                var db = Connection.GetOpen().GetDatabase();
+                subscribers = db.SortedSetRangeByScore(GetRedisKey("events:{0}:subscribers", eventKey), 0, -1)
+                    .Select(value => (String) value).ToArray();
+                subscribersCache[eventKey] = subscribers;
             }
             return subscribers;
         }
 
-        protected override void EnqueueJsonEvent(string data, string target, string eventName)
+        protected override async void EnqueueJsonEvent(string data, string target, string eventName)
         {
-            var connection = Connection.GetOpen();
+            var db = Connection.GetOpen().GetDatabase();
 
             var subscribers = GetSubscribersForEvent(target, eventName);
 
@@ -258,7 +244,7 @@ namespace Cinchcast.Roque.Redis
                 {
                     try
                     {
-                        connection.Lists.AddFirst(0, GetRedisKeyForQueue(subscriber), data).Wait();
+                        db.ListInsertBeforeAsync(GetRedisKeyForQueue(subscriber), 0,data);
                     }
                     catch (Exception ex)
                     {
@@ -274,18 +260,17 @@ namespace Cinchcast.Roque.Redis
 
         public override IDictionary<string, string[]> GetSubscribers()
         {
-            var connection = Connection.GetOpen();
-            var keys = connection.Keys.Find(0, GetRedisKey("events:*:subscribers")).Result;
+            var db = Connection.GetOpen().GetDatabase();
+            var keys = db.HashKeys(GetRedisKey("events:*:subscribers"));
             var keyRegex = new Regex("^" + GetRedisKey("events:(.*):subscribers$"));
-            var subscribers = new Dictionary<string, string[]>();
+            IDictionary<string, string[]> subscribers = new Dictionary<string, string[]>();
             foreach (var key in keys)
             {
                 var eventKey = keyRegex.Match(key).Groups[1].Value;
-                var targets = connection.SortedSets.Range(0, key, 0, -1).Result
-                    .Select(set => Encoding.UTF8.GetString(set.Key)).ToArray();
+                var targets = db.SortedSetRangeByRank((String) key).ToArray();
                 if (targets.Length > 0)
                 {
-                    subscribers[eventKey] = targets;
+                    subscribers[eventKey] = targets.Select(val => (String) val).ToArray();
                 }
             }
             return subscribers;

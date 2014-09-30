@@ -1,15 +1,7 @@
-﻿// -----------------------------------------------------------------------
-// <copyright file="RetryJobAttribute.cs" company="">
-// TODO: Update copyright text.
-// </copyright>
-// -----------------------------------------------------------------------
-
-namespace Cinchcast.Roque.Core
+﻿namespace Cinchcast.Roque.Core
 {
     using System;
-    using System.Collections.Generic;
     using System.Linq;
-    using System.Text;
 
     /// <summary>
     /// Specifies that when a certain type of Exception is raised, Worker must not retry.

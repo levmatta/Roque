@@ -1,34 +1,32 @@
-﻿// -----------------------------------------------------------------------
-// <copyright file="RoqueCommander.cs" company="">
-// TODO: Update copyright text.
-// </copyright>
-// -----------------------------------------------------------------------
-
-using Cinchcast.Roque.Core;
+﻿using Cinchcast.Roque.Core;
 
 namespace Cinchcast.Roque.Common
 {
-    using System;
-    using System.Collections.Generic;
-    using System.Linq;
-    using System.Text;
+    using Cinchcast.Roque.Core.Context;
 
     /// <summary>
     /// Work service implementation example
     /// </summary>
     public class RoqueCommander : IRoqueCommander
     {
+        protected readonly IDependencyResolver resolver;
+
+        public RoqueCommander(IDependencyResolver resolver)
+        {
+            this.resolver = resolver;
+        }
+
         public void StopWorker(string name)
         {
-            Worker.Get(name).Stop().Wait();
+            Worker.Get(name, resolver).Stop().Wait();
         }
 
         public void StartWorker(string name)
         {
-            var worker = Worker.Get(name);
+            var worker = Worker.Get(name, resolver);
             if (worker.State == Worker.WorkerState.Created || worker.State == Worker.WorkerState.Stopped)
             {
-                Worker.Get(name).Start();
+                worker.Start();
             }
         }
     }

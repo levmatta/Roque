@@ -1,17 +1,9 @@
-﻿// -----------------------------------------------------------------------
-// <copyright file="QueueSection.cs" company="">
-// TODO: Update copyright text.
-// </copyright>
-// -----------------------------------------------------------------------
-
-using System.Configuration;
+﻿using System.Configuration;
 
 namespace Cinchcast.Roque.Core.Configuration
 {
     using System;
-    using System.Collections.Generic;
     using System.Linq;
-    using System.Text;
 
     /// <summary>
     /// Trigger config element

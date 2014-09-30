@@ -1,10 +1,7 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text;
 using Cinchcast.Roque.Core;
-using Cinchcast.Roque.Redis;
 
 namespace Cinchcast.Roque.Triggers
 {
@@ -13,11 +10,11 @@ namespace Cinchcast.Roque.Triggers
     /// </summary>
     public class FileWatcherTrigger : Trigger
     {
-        protected Func<DateTime?, DateTime?> NextExecutionGetter;
+        protected Func<DateTime?, DateTime?> nextExecutionGetter;
 
         protected override DateTime? GetNextExecution(DateTime? lastExecution)
         {
-            if (NextExecutionGetter == null)
+            if (nextExecutionGetter == null)
             {
                 var folder = Settings.Get<string, string, string>("folder");
                 var interval = Settings.Get("intervalSeconds", 30);
@@ -26,7 +23,7 @@ namespace Cinchcast.Roque.Triggers
                     throw new Exception("Interval must be bigger than zero");
                 }
 
-                NextExecutionGetter = (lastExec) =>
+                nextExecutionGetter = (lastExec) =>
                     {
                         if (lastExec == null)
                         {
@@ -46,7 +43,7 @@ namespace Cinchcast.Roque.Triggers
                         return DateTime.UtcNow.AddSeconds(interval);
                     };
             }
-            return NextExecutionGetter(lastExecution);
+            return nextExecutionGetter(lastExecution);
         }
     }
 }

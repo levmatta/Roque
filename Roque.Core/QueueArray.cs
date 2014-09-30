@@ -1,16 +1,8 @@
-﻿// -----------------------------------------------------------------------
-// <copyright file="QueueSet.cs" company="">
-// TODO: Update copyright text.
-// </copyright>
-// -----------------------------------------------------------------------
-
-namespace Cinchcast.Roque.Core
+﻿namespace Cinchcast.Roque.Core
 {
     using System;
     using System.Collections.Generic;
     using System.Linq;
-    using System.Text;
-    using System.Threading.Tasks;
 
     /// <summary>
     /// An array of <see cref="Queue"/>
@@ -18,16 +10,16 @@ namespace Cinchcast.Roque.Core
     public class QueueArray : IEnumerable<Queue>
     {
 
-        private Queue[] _Queues;
+        private readonly Queue[] queues;
 
         public QueueArray(params Queue[] workers)
         {
-            _Queues = workers;
+            queues = workers;
         }
 
         public void ForEach(Action<Queue> action)
         {
-            foreach (var worker in _Queues)
+            foreach (var worker in queues)
             {
                 action(worker);
             }
@@ -35,12 +27,12 @@ namespace Cinchcast.Roque.Core
 
         public IEnumerator<Queue> GetEnumerator()
         {
-            return _Queues.AsEnumerable().GetEnumerator();
+            return queues.AsEnumerable().GetEnumerator();
         }
 
         System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator()
         {
-            return _Queues.GetEnumerator();
+            return queues.GetEnumerator();
         }
     }
 }

@@ -1,74 +1,74 @@
-﻿using System;
+﻿using Cinchcast.Roque.Core;
+using StackExchange.Redis;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
-using System.Text;
-using Cinchcast.Roque.Core;
-using BookSleeve;
 
 namespace Cinchcast.Roque.Redis
 {
     public class RedisLiveConnection
     {
-        private string _Host;
-        private int _Port;
-        private int _Timeout;
+        protected String hosts;
 
-        private RedisConnection _Connection;
+        protected int timeout;
 
-        private object syncConnection = new object();
+        protected ConnectionMultiplexer  connection;
+
+        protected readonly object syncConnection = new object();
 
         public RedisLiveConnection(IDictionary<string, string> settings)
         {
-            if (!settings.TryGet("host", out _Host))
+            if (!settings.TryGet("hosts", out hosts))
             {
                 throw new Exception("Redis host is required");
             }
-            _Port = settings.Get("port", 6379);
-            _Timeout = settings.Get("timeout", 2000);
+            this.timeout = settings.Get("timeout", 2000);
         }
 
         public RedisLiveConnection(string host, int port = 6379, int timeout = 2000)
         {
-            _Host = host;
-            _Port = port;
-            _Timeout = timeout;
+            hosts = host + ":" + port;
+            this.timeout = timeout;
         }
 
-        public RedisConnection GetOpen()
+        public RedisLiveConnection(string hosts, int timeout = 2000)
+        {
+            this.hosts = hosts;
+            this.timeout = timeout;
+        }
+
+        public virtual ConnectionMultiplexer GetOpen()
         {
             lock (syncConnection)
             {
-                if (_Connection != null && !(_Connection.State == RedisConnectionBase.ConnectionState.Closed || _Connection.State == RedisConnectionBase.ConnectionState.Closing))
+                if (connection != null && connection.IsConnected)
                 {
-                    return _Connection;
+                    return connection;
                 }
 
-                if (_Connection == null || (_Connection.State == RedisConnectionBase.ConnectionState.Closed || _Connection.State == RedisConnectionBase.ConnectionState.Closing))
+                if (connection == null || !connection.IsConnected)
                 {
                     try
                     {
-                        RoqueTrace.Source.Trace(TraceEventType.Information, "[REDIS] connecting to {0}:{1}", _Host, _Port);
+                        RoqueTrace.Source.Trace(TraceEventType.Information, "[REDIS] connecting to {0}", hosts);
 
-                        _Connection = new RedisConnection(_Host, _Port, _Timeout);
-                        var openAsync = _Connection.Open();
-                        _Connection.Wait(openAsync);
+                        connection = ConnectionMultiplexer.Connect(hosts);
 
                         RoqueTrace.Source.Trace(TraceEventType.Information, "[REDIS] connected");
                     }
                     catch (Exception ex)
                     {
-                        RoqueTrace.Source.Trace(TraceEventType.Error, "[REDIS] error connecting to {0}:{1}, {2}", _Host, _Port, ex.Message, ex);
+                        RoqueTrace.Source.Trace(TraceEventType.Error, "[REDIS] error connecting to {0}, {1}", hosts, ex.Message, ex);
                         throw;
                     }
                 }
-                return _Connection;
+                return connection;
             }
         }
 
         public RedisLiveConnection Clone()
         {
-            return new RedisLiveConnection(_Host, _Port, _Timeout);
+            return new RedisLiveConnection(hosts, timeout);
         }
     }
 }

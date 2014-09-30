@@ -107,3 +107,4 @@ UpgradeLog*.XML
 # NuGet
 packages/
 *.nupkg
+/.JustCode

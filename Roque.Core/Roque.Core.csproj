@@ -10,10 +10,11 @@
     <AppDesignerFolder>Properties</AppDesignerFolder>
     <RootNamespace>Cinchcast.Roque.Core</RootNamespace>
     <AssemblyName>Roque.Core</AssemblyName>
-    <TargetFrameworkVersion>v4.0</TargetFrameworkVersion>
+    <TargetFrameworkVersion>v4.5</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <SolutionDir Condition="$(SolutionDir) == '' Or $(SolutionDir) == '*Undefined*'">..\</SolutionDir>
     <RestorePackages>true</RestorePackages>
+    <TargetFrameworkProfile />
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
     <DebugSymbols>true</DebugSymbols>
@@ -23,6 +24,7 @@
     <DefineConstants>DEBUG;TRACE</DefineConstants>
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
+    <Prefer32Bit>false</Prefer32Bit>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
     <DebugType>pdbonly</DebugType>
@@ -31,17 +33,12 @@
     <DefineConstants>TRACE</DefineConstants>
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
+    <Prefer32Bit>false</Prefer32Bit>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="Castle.Core">
-      <HintPath>..\packages\Castle.Core.3.1.0\lib\net40-client\Castle.Core.dll</HintPath>
-    </Reference>
-    <Reference Include="Castle.Windsor">
-      <HintPath>..\packages\Castle.Windsor.3.1.0\lib\net40\Castle.Windsor.dll</HintPath>
-    </Reference>
-    <Reference Include="Newtonsoft.Json, Version=4.5.0.0, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed, processorArchitecture=MSIL">
+    <Reference Include="Newtonsoft.Json, Version=6.0.0.0, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\packages\Newtonsoft.Json.4.5.11\lib\net40\Newtonsoft.Json.dll</HintPath>
+      <HintPath>..\packages\Newtonsoft.Json.6.0.5\lib\net45\Newtonsoft.Json.dll</HintPath>
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.configuration" />
@@ -56,6 +53,7 @@
     <Compile Include="..\GlobalAssemblyInfo.cs">
       <Link>Properties\GlobalAssemblyInfo.cs</Link>
     </Compile>
+    <Compile Include="Context\AbstractDependecyResolver.cs" />
     <Compile Include="Configuration\TriggerElement.cs" />
     <Compile Include="Configuration\TriggerCollection.cs" />
     <Compile Include="Configuration\SubscriberCollection.cs" />
@@ -67,9 +65,17 @@
     <Compile Include="Configuration\Roque.cs" />
     <Compile Include="Configuration\WorkerElement.cs" />
     <Compile Include="AppDomainHost.cs" />
+    <Compile Include="Context\EventInterceptor.cs" />
+    <Compile Include="Context\IEventProxy.cs" />
+    <Compile Include="Context\Interceptor.cs" />
+    <Compile Include="Context\NoActionInterceptor.cs" />
+    <Compile Include="Context\Proxy.cs" />
+    <Compile Include="Context\Target.cs" />
     <Compile Include="DontRetryOnAttribute.cs" />
-    <Compile Include="EventProxyGenerator.cs" />
     <Compile Include="FileWatcher.cs" />
+    <Compile Include="Context\IDependencyResolver.cs" />
+    <Compile Include="Context\IInterceptor.cs" />
+    <Compile Include="Context\IInvocation.cs" />
     <Compile Include="QueueArray.cs" />
     <Compile Include="DictionaryExtensions.cs" />
     <Compile Include="InMemoryQueue.cs" />
@@ -95,12 +101,12 @@
     <Content Include="web.config.transform">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <None Include="packages.config" />
     <None Include="roque.exe.config">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <None Include="WorkerSide.cd" />
     <None Include="ProducerSide.cd" />
-    <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup />
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

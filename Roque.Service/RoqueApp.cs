@@ -1,9 +1,9 @@
-﻿// -----------------------------------------------------------------------
-// <copyright file="RoqueApp.cs" company="">
-// TODO: Update copyright text.
-// </copyright>
-// -----------------------------------------------------------------------
-
+﻿using Cinchcast.Roque.Common;
+using Cinchcast.Roque.Core;
+using Cinchcast.Roque.Triggers;
+using CLAP;
+using CLAP.Validation;
+using Newtonsoft.Json;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -12,16 +12,12 @@ using System.Management;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.ServiceProcess;
-using CLAP;
-using CLAP.Validation;
-using Cinchcast.Roque.Common;
-using Cinchcast.Roque.Core;
-using Cinchcast.Roque.Core.Configuration;
-using Cinchcast.Roque.Triggers;
-using Newtonsoft.Json;
 
 namespace Cinchcast.Roque.Service
 {
+    using Castle.Core.Resource;
+    using Castle.Windsor;
+    using Castle.Windsor.Configuration.Interpreters;
     using System;
     using System.Linq;
 
@@ -34,14 +30,14 @@ namespace Cinchcast.Roque.Service
         {
 
             public event PropertyChangedEventHandler PropertyChanged;
-            private string _Name;
+            private string name;
 
             public string Name
             {
-                get { return _Name; }
+                get { return name; }
                 set
                 {
-                    _Name = value;
+                    name = value;
                     var handler = PropertyChanged;
                     if (handler != null)
                     {
@@ -54,6 +50,9 @@ namespace Cinchcast.Roque.Service
         [Verb(Description = "Run all workers in config")]
         private static void Work([CLAP.Description("worker to start, or none to start all")]string worker)
         {
+            WorkerHost.Resolver = new CastleWindsorDependecyResolver(
+                new WindsorContainer(new XmlInterpreter(new ConfigResource("castle")))
+                );
             var host = new WorkerHost();
             host.Start(worker);
             var triggerHost = new TriggerHost();
@@ -340,7 +339,7 @@ namespace Cinchcast.Roque.Service
                 }
                 else
                 {
-                    var traceProxy = RoqueProxyGenerator.Create<ITrace>(Queue.Get(queue));
+                    var traceProxy = RoqueProxyGenerator.Create<ITrace>(Queue.Get(queue), null); //LVM
                     stopwatch.Start();
                     for (int i = 1; i <= count; i++)
                     {

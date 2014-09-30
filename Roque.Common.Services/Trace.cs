@@ -1,18 +1,10 @@
-﻿// -----------------------------------------------------------------------
-// <copyright file="Trace.cs" company="">
-// TODO: Update copyright text.
-// </copyright>
-// -----------------------------------------------------------------------
-
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using Cinchcast.Roque.Core;
 
 namespace Cinchcast.Roque.Common
 {
     using System;
-    using System.Collections.Generic;
     using System.Linq;
-    using System.Text;
 
     /// <summary>
     /// Work service implementation example

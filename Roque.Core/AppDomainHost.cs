@@ -1,13 +1,8 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
-using System.Text;
 using System.Threading;
-using System.Threading.Tasks;
-using Cinchcast.Roque.Core;
 
-namespace Cinchcast.Roque.Service
+namespace Cinchcast.Roque.Core
 {
     /// <summary>
     /// Activate objects on a separate AppDomain.
@@ -43,9 +38,9 @@ namespace Cinchcast.Roque.Service
             public abstract void OnStop();
         }
 
-        private Process _Process;
+        protected Process process;
 
-        private bool _Stopping;
+        protected bool stopping;
 
         /// <summary>
         /// If true when any *.config or *.dll file changes the Host will be restarted.
@@ -62,7 +57,7 @@ namespace Cinchcast.Roque.Service
         /// </summary>
         public AppDomain AppDomain { get; private set; }
 
-        private Timer _Timer;
+        protected Timer timer;
 
         /// <summary>
         /// Creates a new Host for workers
@@ -96,33 +91,33 @@ namespace Cinchcast.Roque.Service
                     };
                 AppDomain = AppDomain.CreateDomain("AppDomainHost_" + Guid.NewGuid(), null, appDomainSetup);
             }
-            if (_Process != null || _Stopping)
+            if (process != null || stopping)
             {
                 throw new Exception("A process in this host is already started");
             }
 
             Type processType = GetProcessType();
 
-            _Process = (Process)AppDomain.CreateInstanceAndUnwrap(
+            process = (Process)AppDomain.CreateInstanceAndUnwrap(
                 processType.Assembly.FullName,
                 processType.FullName);
             Trace.TraceInformation("Starting...");
-            _Process.Start(parameters);
+            process.Start(parameters);
             if (RestartOnFileChanges)
             {
                 new FileWatcher().OnConfigOrDllChanges(Restart, true);
             }
-            if (_Timer == null)
+            if (timer == null)
             {
-                _Timer = new Timer(TimerTick, null, TimeSpan.FromSeconds(10), TimeSpan.FromMinutes(1));
+                timer = new Timer(TimerTick, null, TimeSpan.FromSeconds(10), TimeSpan.FromMinutes(1));
             }
         }
 
-        private void TimerTick(object state)
+        protected void TimerTick(object state)
         {
-            if (this.AppDomain != null && _Process != null && !_Stopping)
+            if (this.AppDomain != null && process != null && !stopping)
             {
-                _Process.GCCollect();
+                process.GCCollect();
                 if (RestartIfMemorySizeIsMoreThan > 0)
                 {
                     AppDomain.MonitoringIsEnabled = true;
@@ -145,19 +140,19 @@ namespace Cinchcast.Roque.Service
         /// </summary>
         public void Stop()
         {
-            if (_Process == null || _Stopping)
+            if (process == null || stopping)
             {
                 return;
             }
-            _Stopping = true;
+            stopping = true;
             var appDomain = AppDomain;
             AppDomain = null;
-            _Process = null;
-            _Process = null;
+            process = null;
+            process = null;
             Trace.TraceInformation("Stopping...");
             AppDomain.Unload(appDomain);
             Trace.TraceInformation("Stopped");
-            _Stopping = false;
+            stopping = false;
         }
 
         /// <summary>
@@ -165,7 +160,7 @@ namespace Cinchcast.Roque.Service
         /// </summary>
         public void Restart()
         {
-            if (_Stopping)
+            if (stopping)
             {
                 return;
             }

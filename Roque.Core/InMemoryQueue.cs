@@ -1,27 +1,17 @@
-﻿// -----------------------------------------------------------------------
-// <copyright file="InMemoryQueue.cs" company="">
-// TODO: Update copyright text.
-// </copyright>
-// -----------------------------------------------------------------------
-
-using System.Collections.Concurrent;
-using System.ComponentModel;
-using System.Threading;
-using System.Threading.Tasks;
+﻿using System.Collections.Concurrent;
 
 namespace Cinchcast.Roque.Core
 {
     using System;
     using System.Collections.Generic;
     using System.Linq;
-    using System.Text;
 
     /// <summary>
     /// in-memory queue implementation
     /// </summary>
     public class InMemoryQueue : Queue
     {
-        protected BlockingCollection<string> _Queue = new BlockingCollection<string>();
+        protected BlockingCollection<string> queue = new BlockingCollection<string>();
 
         public InMemoryQueue(string name, IDictionary<string, string> setings)
             : base(name, setings)
@@ -30,13 +20,13 @@ namespace Cinchcast.Roque.Core
 
         protected override void EnqueueJson(string data)
         {
-            _Queue.Add(data);
+            queue.Add(data);
         }
 
         protected override string DequeueJson(Worker worker, int timeoutSeconds)
         {
             string data;
-            if (_Queue.TryTake(out data, timeoutSeconds * 1000))
+            if (queue.TryTake(out data, timeoutSeconds * 1000))
             {
                 return data;
             }
@@ -46,12 +36,12 @@ namespace Cinchcast.Roque.Core
 
         protected override string PeekJson(out long length)
         {
-            length = _Queue.Count;
+            length = queue.Count;
             if (length < 1)
             {
                 return null;
             }
-            return _Queue.FirstOrDefault();
+            return queue.FirstOrDefault();
         }
 
 

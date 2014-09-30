@@ -1,8 +1,7 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using Cinchcast.Roque.Core;
+using System;
 using System.Diagnostics;
 using System.Linq;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -17,7 +16,7 @@ namespace Cinchcast.Roque.Triggers
 
         public bool IsWatching { get; private set; }
 
-        private Task _CurrentWatch;
+        private Task currentWatch;
 
         public bool IsStopRequested { get; private set; }
 
@@ -32,7 +31,7 @@ namespace Cinchcast.Roque.Triggers
         /// <returns></returns>
         public Task Start()
         {
-            return _CurrentWatch = Task.Factory.StartNew(Watch);
+            return currentWatch = Task.Factory.StartNew(Watch);
         }
 
         /// <summary>
@@ -41,7 +40,7 @@ namespace Cinchcast.Roque.Triggers
         /// <returns></returns>
         public Task Stop()
         {
-            if (_CurrentWatch == null || _CurrentWatch.IsCompleted)
+            if (currentWatch == null || currentWatch.IsCompleted)
             {
                 return Task.Factory.StartNew(() => { });
             }
@@ -49,7 +48,7 @@ namespace Cinchcast.Roque.Triggers
             {
                 IsStopRequested = true;
             }
-            return _CurrentWatch;
+            return currentWatch;
         }
 
         private void Watch()

@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 
 namespace Cinchcast.Roque.Triggers
 {
@@ -10,19 +9,19 @@ namespace Cinchcast.Roque.Triggers
     /// </summary>
     public class Schedule
     {
-        private HashSet<byte> _Minute;
-        private HashSet<byte> _Hour;
-        private HashSet<byte> _DayOfMonth;
-        private HashSet<byte> _MonthOfYear;
-        private HashSet<byte> _DayOfWeek;
+        private readonly HashSet<byte> minute;
+        private readonly HashSet<byte> hour;
+        private readonly HashSet<byte> dayOfMonth;
+        private readonly HashSet<byte> monthOfYear;
+        private readonly HashSet<byte> dayOfWeek;
 
         private Schedule(HashSet<byte> minute, HashSet<byte> hour, HashSet<byte> dayOfMonth, HashSet<byte> monthOfYear, HashSet<byte> dayOfWeek)
         {
-            _Minute = minute;
-            _Hour = hour;
-            _DayOfMonth = dayOfMonth;
-            _MonthOfYear = monthOfYear;
-            _DayOfWeek = dayOfWeek;
+            this.minute = minute;
+            this.hour = hour;
+            this.dayOfMonth = dayOfMonth;
+            this.monthOfYear = monthOfYear;
+            this.dayOfWeek = dayOfWeek;
         }
 
         private static HashSet<byte> ByteSet(params byte[] values)
@@ -103,26 +102,26 @@ namespace Cinchcast.Roque.Triggers
 
         public bool IsValidExecutionTime(byte month, byte day, byte weekDay, byte hour, byte minute)
         {
-            if (_MonthOfYear != null && !_MonthOfYear.Contains(month))
+            if (this.monthOfYear != null && !this.monthOfYear.Contains(month))
             {
                 return false;
             }
-            if (_DayOfMonth != null && !_DayOfMonth.Contains(day))
+            if (this.dayOfMonth != null && !this.dayOfMonth.Contains(day))
             {
                 return false;
             }
-            if (_DayOfWeek != null && !_DayOfWeek.Contains(weekDay))
+            if (this.dayOfWeek != null && !this.dayOfWeek.Contains(weekDay))
             {
                 return false;
             }
 
             // the day is valid
 
-            if (_Hour != null && !_Hour.Contains(hour))
+            if (this.hour != null && !this.hour.Contains(hour))
             {
                 return false;
             }
-            if (_Minute != null && !_Minute.Contains(minute))
+            if (this.minute != null && !this.minute.Contains(minute))
             {
                 return false;
             }
@@ -139,15 +138,15 @@ namespace Cinchcast.Roque.Triggers
 
         public bool IsValidExecutionDay(byte month, byte day, byte weekDay)
         {
-            if (_MonthOfYear != null && !_MonthOfYear.Contains(month))
+            if (this.monthOfYear != null && !this.monthOfYear.Contains(month))
             {
                 return false;
             }
-            if (_DayOfMonth != null && !_DayOfMonth.Contains(day))
+            if (this.dayOfMonth != null && !this.dayOfMonth.Contains(day))
             {
                 return false;
             }
-            if (_DayOfWeek != null && !_DayOfWeek.Contains(weekDay))
+            if (this.dayOfWeek != null && !this.dayOfWeek.Contains(weekDay))
             {
                 return false;
             }
@@ -193,8 +192,8 @@ namespace Cinchcast.Roque.Triggers
                 daysAdded++;
             }
             next = new DateTime(next.Year, next.Month, next.Day,
-                _Hour == null ? 0 : _Hour.Min(),
-                _Minute == null ? 0 : _Minute.Min(),
+                this.hour == null ? 0 : this.hour.Min(),
+                this.minute == null ? 0 : this.minute.Min(),
                 0);
 
             return next;

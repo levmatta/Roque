@@ -1,15 +1,8 @@
-﻿// -----------------------------------------------------------------------
-// <copyright file="WorkerSet.cs" company="">
-// TODO: Update copyright text.
-// </copyright>
-// -----------------------------------------------------------------------
-
-namespace Cinchcast.Roque.Core
+﻿namespace Cinchcast.Roque.Core
 {
     using System;
     using System.Collections.Generic;
     using System.Linq;
-    using System.Text;
     using System.Threading.Tasks;
 
     /// <summary>
@@ -17,12 +10,11 @@ namespace Cinchcast.Roque.Core
     /// </summary>
     public class WorkerArray : IEnumerable<Worker>
     {
-
-        private Worker[] _Workers;
+        private readonly Worker[] workers;
 
         public WorkerArray(params Worker[] workers)
         {
-            _Workers = workers;
+            this.workers = workers;
         }
 
         /// <summary>
@@ -63,7 +55,7 @@ namespace Cinchcast.Roque.Core
 
         public void ForEach(Action<Worker> action)
         {
-            foreach (var worker in _Workers)
+            foreach (var worker in workers)
             {
                 action(worker);
             }
@@ -71,12 +63,12 @@ namespace Cinchcast.Roque.Core
 
         public IEnumerator<Worker> GetEnumerator()
         {
-            return _Workers.AsEnumerable().GetEnumerator();
+            return workers.AsEnumerable().GetEnumerator();
         }
 
         System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator()
         {
-            return _Workers.GetEnumerator();
+            return workers.GetEnumerator();
         }
     }
 }

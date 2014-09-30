@@ -1,27 +1,12 @@
-﻿// -----------------------------------------------------------------------
-// <copyright file="Worker.cs" company="">
-// TODO: Update copyright text.
-// </copyright>
-// -----------------------------------------------------------------------
-
-using System.Collections;
-using System.Configuration;
+﻿using Cinchcast.Roque.Core.Configuration;
+using Cinchcast.Roque.Core.Context;
+using System;
+using System.Collections.Generic;
 using System.Diagnostics;
-using System.Reflection;
-using System.Threading.Tasks;
-using Castle.Core.Resource;
-using Castle.DynamicProxy;
-using Castle.Windsor;
-using Castle.Windsor.Configuration.Interpreters;
-using Cinchcast.Roque.Core.Configuration;
-using Newtonsoft.Json;
+using System.Linq;
 
 namespace Cinchcast.Roque.Core
 {
-    using System;
-    using System.Collections.Generic;
-    using System.Linq;
-    using System.Text;
 
     /// <summary>
     /// Executes a <see cref="Job"/> by invoking a method in a service class.
@@ -32,252 +17,19 @@ namespace Cinchcast.Roque.Core
     /// </summary>
     public class Executor
     {
+        private readonly object syncRoot = new object();
 
-        private static WindsorContainer ServiceContainer;
+        private readonly IDictionary<string, Target> targets = new Dictionary<string, Target>();
 
-        private class Target
+        public IDependencyResolver ServiceContainer { get; protected set; }
+
+        public Executor(IDependencyResolver resolver)
         {
-            public object Instance { get; private set; }
-
-            public Type InstanceType { get; private set; }
-
-            public IDictionary<string, MethodInfo> Methods { get; private set; }
-
-            public IDictionary<string, EventInfo> Events { get; private set; }
-
-            public Target(Type type, bool ifNotFoundUseEventProxy = false)
-            {
-                InstanceType = type;
-                if (type.IsInterface || (type.IsAbstract && !type.IsSealed))
-                {
-                    if (ServiceContainer == null)
-                    {
-                        ServiceContainer = new WindsorContainer(new XmlInterpreter(new ConfigResource("castle")));
-                    }
-                    // get an implementation for this interface or abstract class
-                    try
-                    {
-                        Instance = ServiceContainer.Resolve(type);
-                    }
-                    catch
-                    {
-                        if (ifNotFoundUseEventProxy && type.IsInterface)
-                        {
-                            Instance = EventProxyGenerator.CreateEventInterfaceProxy(type);
-                        }
-                        else
-                        {
-                            throw;
-                        }
-                    }
-                }
-                else
-                {
-                    if (type.IsAbstract)
-                    {
-                        // static class
-                        Instance = null;
-                    }
-                    else
-                    {
-                        Instance = Activator.CreateInstance(type);
-                    }
-                }
-                Methods = new Dictionary<string, MethodInfo>();
-                Events = new Dictionary<string, EventInfo>();
-            }
-
-            public void Invoke(string methodName, params string[] parameters)
-            {
-                MethodInfo method;
-                if (!Methods.TryGetValue(methodName, out method))
-                {
-                    try
-                    {
-                        method = InstanceType.GetMethod(methodName);
-                    }
-                    catch (AmbiguousMatchException ex)
-                    {
-                        throw new Exception("Invoked methods can't have multiple overloads: " + methodName, ex);
-                    }
-                    Methods[methodName] = method;
-                }
-                var methodParametersInfo = method.GetParameters();
-                if (methodParametersInfo.Length != parameters.Length)
-                {
-                    throw new Exception(string.Format("Wrong number of parameters. Method: {0}, Expected: {1}, Received: {2}", methodName, methodParametersInfo.Length, parameters.Length));
-                }
-                var parameterValues = new List<object>();
-                for (int index = 0; index < parameters.Length; index++)
-                {
-                    try
-                    {
-                        parameterValues.Add(JsonConvert.DeserializeObject(parameters[index], methodParametersInfo[index].ParameterType));
-                    }
-                    catch (Exception ex)
-                    {
-                        RoqueTrace.Source.Trace(TraceEventType.Error, "Error deserializing parameter: {0}. Method: {1}, Parameter: {2}, Expected Type: {3}",
-                            ex.Message, method.Name, methodParametersInfo[index].Name, methodParametersInfo[index].ParameterType.FullName, ex);
-                        throw;
-                    }
-                }
-                try
-                {
-                    method.Invoke(Instance, parameterValues.ToArray());
-                }
-                catch (TargetInvocationException ex)
-                {
-                    var jobException = ex.InnerException;
-                    RoqueTrace.Source.Trace(TraceEventType.Error, "Error invoking job target: {0}\n\n{1}", jobException.Message, jobException);
-                    var jobExceptionType = jobException.GetType();
-                    if (jobException is ShouldRetryException)
-                    {
-                        throw jobException;
-                    }
-                    var invokedMethod = (Instance == null ? method : Instance.GetType().GetMethod(methodName));
-                    var retryOn = invokedMethod.GetCustomAttributes(typeof(RetryOnAttribute), true)
-                        .OfType<RetryOnAttribute>()
-                        .FirstOrDefault(attr => attr.ExceptionType.IsAssignableFrom(jobExceptionType));
-                    if (retryOn == null)
-                    {
-                        retryOn = invokedMethod.DeclaringType.GetCustomAttributes(typeof(RetryOnAttribute), true)
-                            .OfType<RetryOnAttribute>()
-                            .FirstOrDefault(attr => attr.ExceptionType.IsAssignableFrom(jobExceptionType));
-                    }
-                    if (retryOn != null && !(retryOn is DontRetryOnAttribute))
-                    {
-                        throw retryOn.CreateException(jobException);
-                    }
-                    throw;
-                }
-            }
-
-            public void Raise(string eventName, params string[] parameters)
-            {
-                EventInfo eventInfo;
-                if (!Events.TryGetValue(eventName, out eventInfo))
-                {
-                    eventInfo = InstanceType.GetEvent(eventName);
-                    if (eventInfo == null && InstanceType.IsInterface)
-                    {
-                        // search event in parent interfaces
-                        foreach (var parentInterface in InstanceType.GetInterfaces())
-                        {
-                            eventInfo = parentInterface.GetEvent(eventName);
-                            if (eventInfo != null)
-                            {
-                                break;
-                            }
-                        }
-                    }
-                    if (eventInfo == null)
-                    {
-                        throw new Exception(string.Format("Event not found. Type: {0}, EventName: {1}", InstanceType.FullName, eventName));
-                    }
-                    Events[eventName] = eventInfo;
-                }
-                Type eventArgsType = GetEventArgsType(eventInfo);
-                EventArgs eventArgsValue;
-                try
-                {
-                    if (parameters.Length > 0)
-                    {
-                        eventArgsValue = JsonConvert.DeserializeObject(parameters[0], eventArgsType) as EventArgs;
-                    }
-                    else
-                    {
-                        eventArgsValue = EventArgs.Empty;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    RoqueTrace.Source.Trace(TraceEventType.Error, "Error deserializing event args: {0}. Event: {1}, Expected Type: {2}",
-                         ex.Message, eventInfo.Name, eventArgsType.FullName, ex);
-                    throw;
-                }
-
-                MethodInfo handlerMethod = null;
-                try
-                {
-                    if (Instance is EventProxyGenerator.IEventProxy)
-                    {
-                        var handlers = ((EventProxyGenerator.IEventProxy)Instance).GetHandlersForEvent(eventInfo.Name);
-                        if (handlers.Length > 0)
-                        {
-                            foreach (var handler in handlers)
-                            {
-                                handlerMethod = handler.Method;
-                                handlerMethod.Invoke(handler.Target, new object[] { Instance, eventArgsValue });
-                            }
-                        }
-                        else
-                        {
-                            RoqueTrace.Source.Trace(TraceEventType.Warning, "No suscribers found for event: {0}", eventInfo.Name);
-                        }
-                    }
-                    else
-                    {
-                        var privateDelegatesField = Instance.GetType().GetField(eventInfo.Name, BindingFlags.Instance | BindingFlags.NonPublic);
-                        var eventDelegate = (MulticastDelegate)privateDelegatesField.GetValue(Instance);
-                        if (eventDelegate != null)
-                        {
-                            foreach (var handler in eventDelegate.GetInvocationList())
-                            {
-                                handler.Method.Invoke(handler.Target, new object[] { Instance, eventArgsValue });
-                            }
-                        }
-                    }
-                }
-                catch (TargetInvocationException ex)
-                {
-                    var jobException = ex.InnerException;
-                    RoqueTrace.Source.Trace(TraceEventType.Error, "Error invoking event handler: {0}\n\n{1}", jobException.Message, jobException);
-                    var jobExceptionType = jobException.GetType();
-                    if (jobException is ShouldRetryException)
-                    {
-                        throw jobException;
-                    }
-                    var retryOn = handlerMethod.GetCustomAttributes(typeof(RetryOnAttribute), true)
-                        .OfType<RetryOnAttribute>()
-                        .FirstOrDefault(attr => attr.ExceptionType.IsAssignableFrom(jobExceptionType));
-                    if (retryOn == null)
-                    {
-                        retryOn = handlerMethod.DeclaringType.GetCustomAttributes(typeof(RetryOnAttribute), true)
-                            .OfType<RetryOnAttribute>()
-                            .FirstOrDefault(attr => attr.ExceptionType.IsAssignableFrom(jobExceptionType));
-                    }
-                    if (retryOn != null && !(retryOn is DontRetryOnAttribute))
-                    {
-                        throw retryOn.CreateException(jobException);
-                    }
-                    throw;
-                }
-            }
+            if (resolver == null) throw new ArgumentNullException("Resolver must be provided.");
+            ServiceContainer = resolver;
         }
 
-        private object _syncRoot = new object();
-
-        private readonly IDictionary<string, Target> _Targets = new Dictionary<string, Target>();
-
-        private static Executor _Instance;
-
-        public static Executor Default
-        {
-            get
-            {
-                if (_Instance == null)
-                {
-                    _Instance = new Executor();
-                }
-                return _Instance;
-            }
-            set
-            {
-                _Instance = value;
-            }
-        }
-
-        public void Execute(Job job)
+        public virtual void Execute(Job job)
         {
             try
             {
@@ -297,12 +49,12 @@ namespace Cinchcast.Roque.Core
             InvokeTarget(job);
         }
 
-        private void InvokeTarget(Job job)
+        protected virtual void InvokeTarget(Job job)
         {
             Target target = GetTarget(job.Target);
             if (job.IsEvent)
             {
-                target.Raise(job.Method, job.Arguments);
+                target.InvokeEvent(job.Method, job.Arguments);
             }
             else
             {
@@ -310,27 +62,27 @@ namespace Cinchcast.Roque.Core
             }
         }
 
-        private Target GetTarget(string targetTypeName, bool ifNotFoundUseEventProxy = false)
+        protected virtual Target GetTarget(string targetTypeName, bool ifNotFoundUseEventProxy = false)
         {
             Target target;
             var fullName = targetTypeName.Split(new[] { ',', ' ' }).First();
-            lock (_syncRoot)
+            lock (syncRoot)
             {
-                if (!_Targets.TryGetValue(fullName, out target))
+                if (!targets.TryGetValue(fullName, out target))
                 {
                     var type = Type.GetType(targetTypeName);
                     if (type == null)
                     {
                         throw new ShouldRetryException(TimeSpan.FromSeconds(10), 0, new Exception("Type not found: " + targetTypeName));
                     }
-                    target = new Target(type, ifNotFoundUseEventProxy);
-                    _Targets[fullName] = target;
+                    target = new Target(type, ServiceContainer, ifNotFoundUseEventProxy);
+                    targets[fullName] = target;
                 }
             }
             return target;
         }
 
-        public void RegisterSubscriber(object subscriber, string sourceQueue = null, string queue = null)
+        public virtual void RegisterSubscriber(object subscriber, string sourceQueue = null, string queue = null)
         {
             var suscribeMethods = subscriber.GetType().GetMethods().Where(m => m.Name.StartsWith("Subscribe")).ToArray();
             foreach (var suscribeMethod in suscribeMethods)
@@ -343,9 +95,9 @@ namespace Cinchcast.Roque.Core
                     {
                         var instance = GetTarget(paramInfo.ParameterType.AssemblyQualifiedName, true).Instance;
                         parameters.Add(instance);
-                        if (instance is EventProxyGenerator.IEventProxy)
+                        if (instance is IEventProxy)
                         {
-                            ((EventProxyGenerator.IEventProxy)instance).BeginTrackingSubscriptions();
+                            ((IEventProxy)instance).BeginTrackingSubscriptions();
                         }
                     }
                     catch (Exception ex)
@@ -362,9 +114,9 @@ namespace Cinchcast.Roque.Core
                     foreach (var paramInfo in suscribeMethod.GetParameters())
                     {
                         var instance = GetTarget(paramInfo.ParameterType.AssemblyQualifiedName, true).Instance;
-                        if (instance is EventProxyGenerator.IEventProxy)
+                        if (instance is IEventProxy)
                         {
-                            string[] eventNames = ((EventProxyGenerator.IEventProxy)instance).GetEventsWithNewSubscriptions();
+                            string[] eventNames = ((IEventProxy)instance).GetEventsWithNewSubscriptions();
                             foreach (string eventName in eventNames)
                             {
                                 Queue.Get(queue).ReportEventSubscription(sourceQueue, paramInfo.ParameterType.FullName, eventName);
@@ -377,7 +129,7 @@ namespace Cinchcast.Roque.Core
             }
         }
 
-        public void RegisterSubscribersForWorker(Worker worker)
+        public virtual void RegisterSubscribersForWorker(Worker worker)
         {
             if (string.IsNullOrEmpty(worker.Name))
             {
@@ -399,7 +151,7 @@ namespace Cinchcast.Roque.Core
                     {
                         sourceQueue = Queue.DefaultEventQueueName;
                     }
-                    RegisterSubscriber(Activator.CreateInstance(Type.GetType(subscriberConfig.SubscriberType)), sourceQueue, worker.Queue.Name);
+                    RegisterSubscriber(worker.Resolver.GetService(Type.GetType(subscriberConfig.SubscriberType)), sourceQueue, worker.Queue.Name);
                 }
                 catch (Exception ex)
                 {
@@ -409,15 +161,6 @@ namespace Cinchcast.Roque.Core
                     throw;
                 }
             }
-        }
-
-        public static Type GetEventArgsType(EventInfo eventType)
-        {
-            Type t = eventType.EventHandlerType;
-            MethodInfo m = t.GetMethod("Invoke");
-
-            var parameters = m.GetParameters();
-            return parameters[1].ParameterType;
         }
 
     }

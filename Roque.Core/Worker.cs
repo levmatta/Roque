@@ -1,22 +1,15 @@
-﻿// -----------------------------------------------------------------------
-// <copyright file="Worker.cs" company="">
-// TODO: Update copyright text.
-// </copyright>
-// -----------------------------------------------------------------------
-
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.IO;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
-using Cinchcast.Roque.Core.Configuration;
 
 namespace Cinchcast.Roque.Core
 {
-    using System;
-    using System.Collections.Generic;
-    using System.Linq;
-    using System.Text;
+    using Cinchcast.Roque.Core.Context;
+using System;
+using System.Collections.Generic;
+using System.Linq;
 
     /// <summary>
     /// a Worker sequentially runs jobs from a <see cref="Queue"/>
@@ -39,6 +32,8 @@ namespace Cinchcast.Roque.Core
 
         public Queue Queue { get; protected set; }
 
+        public IDependencyResolver Resolver { get; protected set; }
+
         public string Name { get; set; }
 
         public int TooManyErrors { get; set; }
@@ -47,44 +42,24 @@ namespace Cinchcast.Roque.Core
 
         public bool AutoStart { get; private set; }
 
-        private static IDictionary<string, Worker> _Instances = new Dictionary<string, Worker>();
+        private static readonly IDictionary<string, Worker> instances = new Dictionary<string, Worker>();
 
-        private static WorkerArray _All;
+        private static WorkerArray all;
 
         /// <summary>
         /// Returns all workers declared in configuration
         /// </summary>
-        public static WorkerArray All
+        public static WorkerArray GetAll(IDependencyResolver resolver)
         {
-            get
+            if (all == null)
             {
-                if (_All == null)
+                foreach (var workerConfig in Configuration.Roque.Settings.Workers.OfType<Configuration.WorkerElement>())
                 {
-                    foreach (var workerConfig in Configuration.Roque.Settings.Workers.OfType<Configuration.WorkerElement>())
-                    {
-                        Worker.Get(workerConfig.Name);
-                    }
-                    _All = new WorkerArray(_Instances.Values.ToArray());
+                    Worker.Get(workerConfig.Name, resolver);
                 }
-                return _All;
+                all = new WorkerArray(instances.Values.ToArray());
             }
-        }
-
-        private static Worker _Single;
-
-        /// <summary>
-        /// Returns the worker declared in configuration (throws an exception if none of more than one is found)
-        /// </summary>
-        public static Worker Single
-        {
-            get
-            {
-                if (_Single == null)
-                {
-                    _Single = All.Single();
-                }
-                return _Single;
-            }
+            return all;
         }
 
         public bool IsResuming { get; private set; }
@@ -94,14 +69,14 @@ namespace Cinchcast.Roque.Core
         /// </summary>
         /// <param name="name"></param>
         /// <returns></returns>
-        public static Worker Get(string name)
+        public static Worker Get(string name, IDependencyResolver resolver)
         {
             Worker worker;
             if (string.IsNullOrWhiteSpace(name))
             {
                 name = string.Empty;
             }
-            if (!_Instances.TryGetValue(name, out worker))
+            if (!instances.TryGetValue(name, out worker))
             {
                 try
                 {
@@ -115,7 +90,7 @@ namespace Cinchcast.Roque.Core
                     {
                         throw new Exception("Worker not found: " + name);
                     }
-                    worker = new Worker(workerConfig.Name, Queue.Get(workerConfig.Queue), workerConfig.TooManyErrors, workerConfig.TooManyErrorsRetrySeconds);
+                    worker = new Worker(workerConfig.Name, Queue.Get(workerConfig.Queue), resolver, workerConfig.TooManyErrors, workerConfig.TooManyErrorsRetrySeconds);
                     worker.AutoStart = workerConfig.AutoStart;
                 }
                 catch (Exception ex)
@@ -127,7 +102,7 @@ namespace Cinchcast.Roque.Core
             return worker;
         }
 
-        private string _ID;
+        private string iD;
 
         /// <summary>
         /// Uniquely identifies a worker on it's queues. It's persisted in a file .Guid.txt to enable job resuming. 
@@ -136,39 +111,40 @@ namespace Cinchcast.Roque.Core
         {
             get
             {
-                if (_ID == null)
+                if (iD == null)
                 {
                     string guidFilePath = Path.Combine(Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location), "Roque.Worker." + Name.ToLowerInvariant() + ".Guid.txt");
                     if (!File.Exists(guidFilePath))
                     {
-                        _ID = Environment.MachineName + "-net-" + Guid.NewGuid().ToString();
-                        File.WriteAllText(guidFilePath, _ID);
+                        iD = Environment.MachineName + "-net-" + Guid.NewGuid().ToString();
+                        File.WriteAllText(guidFilePath, iD);
                     }
                     else
                     {
-                        _ID = File.ReadAllText(guidFilePath);
+                        iD = File.ReadAllText(guidFilePath);
                     }
                 }
-                return _ID;
+                return iD;
             }
         }
 
-        private Task _CurrentWork;
+        protected Task currentWork;
 
-        private Worker(string name, Queue queue, int tooManyErrors = 10, int tooManyErrorsRetrySeconds = 30)
+        private Worker(string name, Queue queue, IDependencyResolver resolver, int tooManyErrors = 10, int tooManyErrorsRetrySeconds = 30)
         {
-            if (_Instances.ContainsKey(name))
+            if (instances.ContainsKey(name))
             {
                 throw new Exception("Worker name already exists: " + name);
             }
             this.Name = name;
             this.Queue = queue;
+            this.Resolver = resolver;
             this.TooManyErrors = tooManyErrors;
             this.TooManyErrorsRetrySeconds = tooManyErrorsRetrySeconds;
-            _Instances[Name] = this;
+            instances[Name] = this;
         }
 
-        private bool _SubscribersRegistered;
+        private bool subscribersRegistered;
 
         /// <summary>
         /// Sequentially pick and run jobs from the <see cref="Queue"/> until stop is requested.
@@ -192,12 +168,12 @@ namespace Cinchcast.Roque.Core
                 RoqueTrace.Source.Trace(TraceEventType.Information, "Worker {0} started. Roque v{1}. AppDomain: {2}",
                     Name, new Func<object>(() => Assembly.GetAssembly(typeof(Worker)).GetName().Version), AppDomain.CurrentDomain.FriendlyName);
 
-                while (!_SubscribersRegistered && !IsStopRequested)
+                while (!subscribersRegistered && !IsStopRequested)
                 {
                     try
                     {
-                        Executor.Default.RegisterSubscribersForWorker(this);
-                        _SubscribersRegistered = true;
+                        Resolver.GetService<Executor>().RegisterSubscribersForWorker(this);
+                        subscribersRegistered = true;
                     }
                     catch
                     {
@@ -263,7 +239,7 @@ namespace Cinchcast.Roque.Core
                                 stopwatchBatchWork.Start();
                             }
                             State = WorkerState.Working;
-                            job.Execute();
+                            job.Execute(Resolver.GetService<Executor>());
                             consecutiveErrors = 0;
                             try
                             {
@@ -353,7 +329,7 @@ namespace Cinchcast.Roque.Core
         /// <returns></returns>
         public Task Start()
         {
-            return _CurrentWork = Task.Factory.StartNew(Work);
+            return currentWork = Task.Factory.StartNew(Work);
         }
 
         /// <summary>
@@ -362,7 +338,7 @@ namespace Cinchcast.Roque.Core
         /// <returns></returns>
         public Task Stop()
         {
-            if (_CurrentWork == null || _CurrentWork.IsCompleted)
+            if (currentWork == null || currentWork.IsCompleted)
             {
                 return Task.Factory.StartNew(() => { });
             }
@@ -370,7 +346,7 @@ namespace Cinchcast.Roque.Core
             {
                 IsStopRequested = true;
             }
-            return _CurrentWork;
+            return currentWork;
         }
     }
 }

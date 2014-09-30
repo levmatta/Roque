@@ -1,15 +1,8 @@
-﻿// -----------------------------------------------------------------------
-// <copyright file="DictionaryExtensions.cs" company="">
-// TODO: Update copyright text.
-// </copyright>
-// -----------------------------------------------------------------------
-
-namespace Cinchcast.Roque.Core
+﻿namespace Cinchcast.Roque.Core
 {
     using System;
     using System.Collections.Generic;
     using System.Linq;
-    using System.Text;
 
     /// <summary>
     /// Utility methods to get values from an IDictionary

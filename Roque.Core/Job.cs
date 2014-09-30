@@ -1,16 +1,8 @@
-﻿// -----------------------------------------------------------------------
-// <copyright file="Job.cs" company="">
-// TODO: Update copyright text.
-// </copyright>
-// -----------------------------------------------------------------------
-
-using System.Threading.Tasks;
-using Newtonsoft.Json;
+﻿using Newtonsoft.Json;
 
 namespace Cinchcast.Roque.Core
 {
     using System;
-    using System.Collections.Generic;
     using System.Linq;
     using System.Text;
 
@@ -71,9 +63,9 @@ namespace Cinchcast.Roque.Core
             _IsResuming = true;
         }
 
-        public void Execute(Executor executor = null)
+        public void Execute(Executor executor)
         {
-            (executor ?? Executor.Default).Execute(this);
+            executor.Execute(this);
         }
 
         public static string AgeToString(TimeSpan age)
